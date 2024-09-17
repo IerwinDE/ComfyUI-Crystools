@@ -234,7 +234,8 @@ class CImageLoadWithMetadata:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "image_path": ("STRING", {"default": "path/to/image.webp"}),
+                "directory_path": ("STRING", {"default": "path/to/directory"}),
+                "index": ("INT", {"default": 0, "min": 0}),
             },
         }
 
@@ -244,13 +245,27 @@ class CImageLoadWithMetadata:
     OUTPUT_NODE = True
     FUNCTION = "execute"
 
-    def execute(self, image_path):
-        image_path = os.path.normpath(image_path)  # Normalize path
+    def execute(self, directory_path, index):
+        directory_path = os.path.normpath(directory_path)  # Normalize the directory path
 
-        # Ensure the file exists
-        if not os.path.isfile(image_path):
-            raise FileNotFoundError(f"The specified image file '{image_path}' does not exist.")
+        # Ensure the directory exists
+        if not os.path.isdir(directory_path):
+            raise FileNotFoundError(f"The specified directory '{directory_path}' does not exist.")
 
+        # Get the list of PNG files in the directory and sort them
+        png_files = sorted([f for f in os.listdir(directory_path) if f.lower().endswith('.png')])
+
+        if len(png_files) == 0:
+            raise FileNotFoundError(f"No PNG files found in directory '{directory_path}'.")
+
+        # Ensure the index is within bounds
+        if index < 0 or index >= len(png_files):
+            raise IndexError(f"Index {index} is out of range for the PNG files in the directory.")
+
+        # Get the file path of the selected image
+        image_path = os.path.join(directory_path, png_files[index])
+
+        # Load the image and metadata
         imgF = Image.open(image_path)
         img, prompt, metadata = self.build_metadata(image_path)
 
@@ -311,9 +326,14 @@ class CImageLoadWithMetadata:
         return m.digest().hex()
 
     @classmethod
-    def VALIDATE_INPUTS(cls, image_path):
-        if not os.path.isfile(image_path):
-            return f"Invalid image file: {image_path}"
+    def VALIDATE_INPUTS(cls, directory_path, index):
+        if not os.path.isdir(directory_path):
+            return f"Invalid directory: {directory_path}"
+        
+        png_files = sorted([f for f in os.listdir(directory_path) if f.lower().endswith('.png')])
+        
+        if index < 0 or index >= len(png_files):
+            return f"Index {index} out of range. Found {len(png_files)} PNG files."
 
         return True
 
