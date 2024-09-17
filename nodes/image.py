@@ -232,11 +232,26 @@ class CImageLoadWithMetadata:
 
     @classmethod
     def INPUT_TYPES(cls):
-        # Der Input bleibt unverändert
+        input_dir = folder_paths.get_input_directory()
+        exclude_folders = ["clipspace"]
+        file_list = []
+
+        for root, dirs, files in os.walk(input_dir):
+            # Exclude specific folders
+            dirs[:] = [d for d in dirs if d not in exclude_folders]
+
+            for file in files:
+                relpath = os.path.relpath(os.path.join(root, file), start=input_dir)
+                # fix for windows
+                relpath = relpath.replace("\\", "/")
+                file_list.append(relpath)
+
         return {
             "required": {
+                "use_widget": ("BOOL", {"default": True}),
                 "directory_path": ("STRING", {"default": "path/to/directory"}),
                 "index": ("INT", {"default": 0, "min": 0}),
+                "image": (sorted(file_list), {"image_upload": True}),
             },
         }
 
@@ -246,32 +261,41 @@ class CImageLoadWithMetadata:
     OUTPUT_NODE = True
     FUNCTION = "execute"
 
-    def execute(self, directory_path, index):
-        directory_path = os.path.normpath(directory_path)  # Normalize the directory path
+    def execute(self, use_widget, directory_path, index, image):
+        # Wenn der Schalter auf "True" steht, wird das Widget verwendet
+        if use_widget:
+            # Hier die alte Methode mit dem Widget
+            image_path = folder_paths.get_annotated_filepath(image)
+            imgF = Image.open(image_path)
+            img, prompt, metadata = buildMetadata(image_path)
 
-        # Ensure the directory exists
-        if not os.path.isdir(directory_path):
-            raise FileNotFoundError(f"The specified directory '{directory_path}' does not exist.")
+        else:
+            # Hier die neue Methode mit Pfad und Index
+            directory_path = os.path.normpath(directory_path)  # Normalize the directory path
 
-        # Get the list of PNG files in the directory and sort them
-        png_files = sorted([f for f in os.listdir(directory_path) if f.lower().endswith('.png')])
+            # Ensure the directory exists
+            if not os.path.isdir(directory_path):
+                raise FileNotFoundError(f"The specified directory '{directory_path}' does not exist.")
 
-        if len(png_files) == 0:
-            raise FileNotFoundError(f"No PNG files found in directory '{directory_path}'.")
+            # Get the list of PNG files in the directory and sort them
+            png_files = sorted([f for f in os.listdir(directory_path) if f.lower().endswith('.png')])
 
-        # Ensure the index is within bounds
-        if index < 0 or index >= len(png_files):
-            raise IndexError(f"Index {index} is out of range for the PNG files in the directory.")
+            if len(png_files) == 0:
+                raise FileNotFoundError(f"No PNG files found in directory '{directory_path}'.")
 
-        # Get the file path of the selected image
-        image_path = os.path.join(directory_path, png_files[index])
+            # Ensure the index is within bounds
+            if index < 0 or index >= len(png_files):
+                raise IndexError(f"Index {index} is out of range for the PNG files in the directory.")
 
-        # Load the image and metadata using the external buildMetadata function
-        imgF = Image.open(image_path)
-        img, prompt, metadata = buildMetadata(image_path)  # Aufruf der externen Funktion
+            # Get the file path of the selected image
+            image_path = os.path.join(directory_path, png_files[index])
 
+            # Load the image and metadata
+            imgF = Image.open(image_path)
+            img, prompt, metadata = buildMetadata(image_path)
+
+        # Falls es ein WebP-Bild ist, werden die EXIF-Daten extrahiert
         if imgF.format == 'WEBP':
-            # Use piexif to extract EXIF data from WebP image
             try:
                 exif_data = piexif.load(image_path)
                 prompt, metadata = self.process_exif_data(exif_data)
@@ -290,6 +314,52 @@ class CImageLoadWithMetadata:
             mask = torch.zeros((64, 64), dtype=torch.float32, device="cpu")
 
         return image, mask.unsqueeze(0), prompt, metadata
+
+    def process_exif_data(self, exif_data):
+        metadata = {}
+        # Check '0th' key for 271 value (Prompt information)
+        if '0th' in exif_data and 271 in exif_data['0th']:
+            prompt_data = exif_data['0th'][271].decode('utf-8')
+            prompt_data = prompt_data.replace('Prompt:', '', 1)
+            try:
+                metadata['prompt'] = json.loads(prompt_data)
+            except json.JSONDecodeError:
+                metadata['prompt'] = prompt_data
+
+        # Check '0th' key for 270 value (Workflow information)
+        if '0th' in exif_data and 270 in exif_data['0th']:
+            workflow_data = exif_data['0th'][270].decode('utf-8')
+            workflow_data = workflow_data.replace('Workflow:', '', 1)
+            try:
+                metadata['workflow'] = json.loads(workflow_data)
+            except json.JSONDecodeError:
+                metadata['workflow'] = workflow_data
+
+        metadata.update(exif_data)
+        return metadata
+
+    @classmethod
+    def IS_CHANGED(cls, image_path):
+        m = hashlib.sha256()
+        with open(image_path, 'rb') as f:
+            m.update(f.read())
+        return m.digest().hex()
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, use_widget, directory_path, index, image):
+        if use_widget:
+            if not folder_paths.exists_annotated_filepath(image):
+                return "Invalid image file: {}".format(image)
+        else:
+            if not os.path.isdir(directory_path):
+                return f"Invalid directory: {directory_path}"
+
+            png_files = sorted([f for f in os.listdir(directory_path) if f.lower().endswith('.png')])
+
+            if index < 0 or index >= len(png_files):
+                return f"Index {index} out of range. Found {len(png_files)} PNG files."
+
+        return True
 
 
 class CImageSaveWithExtraMetadata(SaveImage):
