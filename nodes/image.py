@@ -226,32 +226,31 @@ class CImageGetResolution:
         return {"ui": {"text": text}, "result": (res["x"], res["y"])}
 
 
-class CImageLoadWithMetadata:
+                                                                              
+class CIndexedImageLoadWithMetadata:
     def __init__(self):
         pass
 
     @classmethod
     def INPUT_TYPES(cls):
-        input_dir = folder_paths.get_input_directory()
-        exclude_folders = ["clipspace"]
-        file_list = []
+        # Der Input bleibt unverändert
+                                       
+                      
 
-        for root, dirs, files in os.walk(input_dir):
-            # Exclude specific folders
-            dirs[:] = [d for d in dirs if d not in exclude_folders]
+                                                    
+                                      
+                                                                   
 
-            for file in files:
-                relpath = os.path.relpath(os.path.join(root, file), start=input_dir)
-                # fix for windows
-                relpath = relpath.replace("\\", "/")
-                file_list.append(relpath)
+                              
+                                                                                    
+                                 
+                                                    
+                                         
 
         return {
             "required": {
-                "use_widget": ("BOOL", {"default": True}),
                 "directory_path": ("STRING", {"default": "path/to/directory"}),
                 "index": ("INT", {"default": 0, "min": 0}),
-                "image": (sorted(file_list), {"image_upload": True}),
             },
         }
 
@@ -261,41 +260,32 @@ class CImageLoadWithMetadata:
     OUTPUT_NODE = True
     FUNCTION = "execute"
 
-    def execute(self, use_widget, directory_path, index, image):
-        # Wenn der Schalter auf "True" steht, wird das Widget verwendet
-        if use_widget:
-            # Hier die alte Methode mit dem Widget
-            image_path = folder_paths.get_annotated_filepath(image)
-            imgF = Image.open(image_path)
-            img, prompt, metadata = buildMetadata(image_path)
+    def execute(self, directory_path, index):
+        directory_path = os.path.normpath(directory_path)  # Normalize the directory path
 
-        else:
-            # Hier die neue Methode mit Pfad und Index
-            directory_path = os.path.normpath(directory_path)  # Normalize the directory path
+        # Ensure the directory exists
+        if not os.path.isdir(directory_path):
+            raise FileNotFoundError(f"The specified directory '{directory_path}' does not exist.")
 
-            # Ensure the directory exists
-            if not os.path.isdir(directory_path):
-                raise FileNotFoundError(f"The specified directory '{directory_path}' does not exist.")
+        # Get the list of PNG files in the directory and sort them
+        png_files = sorted([f for f in os.listdir(directory_path) if f.lower().endswith('.png')])
 
-            # Get the list of PNG files in the directory and sort them
-            png_files = sorted([f for f in os.listdir(directory_path) if f.lower().endswith('.png')])
+        if len(png_files) == 0:
+            raise FileNotFoundError(f"No PNG files found in directory '{directory_path}'.")
 
-            if len(png_files) == 0:
-                raise FileNotFoundError(f"No PNG files found in directory '{directory_path}'.")
+        # Ensure the index is within bounds
+        if index < 0 or index >= len(png_files):
+            raise IndexError(f"Index {index} is out of range for the PNG files in the directory.")
 
-            # Ensure the index is within bounds
-            if index < 0 or index >= len(png_files):
-                raise IndexError(f"Index {index} is out of range for the PNG files in the directory.")
+        # Get the file path of the selected image
+        image_path = os.path.join(directory_path, png_files[index])
 
-            # Get the file path of the selected image
-            image_path = os.path.join(directory_path, png_files[index])
+        # Load the image and metadata using the external buildMetadata function
+        imgF = Image.open(image_path)
+        img, prompt, metadata = buildMetadata(image_path)  # Aufruf der externen Funktion
 
-            # Load the image and metadata
-            imgF = Image.open(image_path)
-            img, prompt, metadata = buildMetadata(image_path)
-
-        # Falls es ein WebP-Bild ist, werden die EXIF-Daten extrahiert
         if imgF.format == 'WEBP':
+            # Use piexif to extract EXIF data from WebP image
             try:
                 exif_data = piexif.load(image_path)
                 prompt, metadata = self.process_exif_data(exif_data)
@@ -315,51 +305,48 @@ class CImageLoadWithMetadata:
 
         return image, mask.unsqueeze(0), prompt, metadata
 
-    def process_exif_data(self, exif_data):
-        metadata = {}
-        # Check '0th' key for 271 value (Prompt information)
-        if '0th' in exif_data and 271 in exif_data['0th']:
-            prompt_data = exif_data['0th'][271].decode('utf-8')
-            prompt_data = prompt_data.replace('Prompt:', '', 1)
-            try:
-                metadata['prompt'] = json.loads(prompt_data)
-            except json.JSONDecodeError:
-                metadata['prompt'] = prompt_data
+                                           
+                     
+                                                               
+                                                          
+                                                               
+                                             
+                                                               
+                                                                                       
+                
+                                                            
+                                        
+                                                
 
-        # Check '0th' key for 270 value (Workflow information)
-        if '0th' in exif_data and 270 in exif_data['0th']:
-            workflow_data = exif_data['0th'][270].decode('utf-8')
-            workflow_data = workflow_data.replace('Workflow:', '', 1)
-            try:
-                metadata['workflow'] = json.loads(workflow_data)
-            except json.JSONDecodeError:
-                metadata['workflow'] = workflow_data
+                                                                 
+                                                          
+                                                                 
+                                               
+                                                                     
+                
+                                                               
+                                                                
+                                        
+                                                                                  
+                                                    
 
-        metadata.update(exif_data)
-        return metadata
+                                  
+                       
 
-    @classmethod
-    def IS_CHANGED(cls, image_path):
-        m = hashlib.sha256()
-        with open(image_path, 'rb') as f:
-            m.update(f.read())
-        return m.digest().hex()
+                
+                               
+                                                               
+                            
+                                         
+                              
+                               
 
-    @classmethod
-    def VALIDATE_INPUTS(cls, use_widget, directory_path, index, image):
-        if use_widget:
-            if not folder_paths.exists_annotated_filepath(image):
-                return "Invalid image file: {}".format(image)
-        else:
-            if not os.path.isdir(directory_path):
-                return f"Invalid directory: {directory_path}"
+                
+                                    
+                                                             
+                                                         
 
-            png_files = sorted([f for f in os.listdir(directory_path) if f.lower().endswith('.png')])
-
-            if index < 0 or index >= len(png_files):
-                return f"Index {index} out of range. Found {len(png_files)} PNG files."
-
-        return True
+                   
 
 
 class CImageSaveWithExtraMetadata(SaveImage):
@@ -454,7 +441,133 @@ class CImageSaveWithExtraMetadata(SaveImage):
 
         return data
 
+class CImageLoadWithMetadata:
+    def __init__(self):
+        pass
 
+    @classmethod
+    def INPUT_TYPES(cls):
+        input_dir = folder_paths.get_input_directory()
+        exclude_folders = ["clipspace"]
+        file_list = []
+
+        for root, dirs, files in os.walk(input_dir):
+            # Exclude specific folders
+            dirs[:] = [d for d in dirs if d not in exclude_folders]
+
+            for file in files:
+                relpath = os.path.relpath(os.path.join(root, file), start=input_dir)
+                # fix for windows
+                relpath = relpath.replace("\\", "/")
+                file_list.append(relpath)
+
+        return {
+            "required": {
+                "use_widget": ("BOOLEAN", {"default": True}),
+                "image": (sorted(file_list), {"image_upload": True}),
+                "directory_path": ("STRING", {"default": "path/to/directory"}),
+                "index": ("INT", {"default": 0, "min": 0}),
+            },
+        }
+
+    CATEGORY = "Image Processing"
+    RETURN_TYPES = ("IMAGE", "MASK", "JSON", "METADATA_RAW")
+    RETURN_NAMES = ("image", "mask", "prompt", "Metadata RAW")
+    OUTPUT_NODE = True
+    FUNCTION = "execute"
+
+    def execute(self, use_widget, image, directory_path, index):
+        if use_widget:
+            # Lade das Bild über das Widget
+            image_path = folder_paths.get_annotated_filepath(image)
+        else:
+            # Lade das Bild aus dem Verzeichnis basierend auf dem Index
+            directory_path = os.path.normpath(directory_path)  # Normalize the directory path
+
+            # Ensure the directory exists
+            if not os.path.isdir(directory_path):
+                raise FileNotFoundError(f"The specified directory '{directory_path}' does not exist.")
+
+            # Get the list of PNG files in the directory and sort them
+            png_files = sorted([f for f in os.listdir(directory_path) if f.lower().endswith('.png')])
+
+            if len(png_files) == 0:
+                raise FileNotFoundError(f"No PNG files found in directory '{directory_path}'.")
+
+            # Ensure the index is within bounds
+            if index < 0 or index >= len(png_files):
+                raise IndexError(f"Index {index} is out of range for the PNG files in the directory.")
+
+            # Get the file path of the selected image
+            image_path = os.path.join(directory_path, png_files[index])
+
+        # Lade das Bild und die Metadaten
+        imgF = Image.open(image_path)
+        img, prompt, metadata = buildMetadata(image_path)
+
+        if imgF.format == 'WEBP':
+            # Verwende piexif, um EXIF-Daten aus der WebP-Datei zu extrahieren
+            try:
+                exif_data = piexif.load(image_path)
+                prompt, metadata = self.process_exif_data(exif_data)
+            except ValueError:
+                prompt = {}
+
+        img = ImageOps.exif_transpose(img)
+        image = img.convert("RGB")
+        image = np.array(image).astype(np.float32) / 255.0
+        image = torch.from_numpy(image)[None,]
+
+        if 'A' in img.getbands():
+            mask = np.array(img.getchannel('A')).astype(np.float32) / 255.0
+            mask = 1. - torch.from_numpy(mask)
+        else:
+            mask = torch.zeros((64, 64), dtype=torch.float32, device="cpu")
+
+        return image, mask.unsqueeze(0), prompt, metadata
+
+    def process_exif_data(self, exif_data):
+        metadata = {}
+        # 检查 '0th' 键下的 271 值，提取 Prompt 信息
+        if '0th' in exif_data and 271 in exif_data['0th']:
+            prompt_data = exif_data['0th'][271].decode('utf-8')
+            # 移除可能的前缀 'Prompt:'
+            prompt_data = prompt_data.replace('Prompt:', '', 1)
+            # 假设 prompt_data 是一个字符串，尝试将其转换为 JSON 对象
+            try:
+                metadata['prompt'] = json.loads(prompt_data)
+            except json.JSONDecodeError:
+                metadata['prompt'] = prompt_data
+
+        # 检查 '0th' 键下的 270 值，提取 Workflow 信息
+        if '0th' in exif_data and 270 in exif_data['0th']:
+            workflow_data = exif_data['0th'][270].decode('utf-8')
+            # 移除可能的前缀 'Workflow:'
+            workflow_data = workflow_data.replace('Workflow:', '', 1)
+            try:
+                # 尝试将字节字符串转换为 JSON 对象
+                metadata['workflow'] = json.loads(workflow_data)
+            except json.JSONDecodeError:
+                # 如果转换失败，则将原始字符串存储在 metadata 中
+                metadata['workflow'] = workflow_data
+
+        metadata.update(exif_data)
+        return metadata
+
+    @classmethod
+    def IS_CHANGED(cls, image):
+        image_path = folder_paths.get_annotated_filepath(image)
+        m = hashlib.sha256()
+        with open(image_path, 'rb') as f:
+            m.update(f.read())
+        return m.digest().hex()
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, image):
+        if not folder_paths.exists_annotated_filepath(image):
+            return "Invalid image file: {}".format(image)
+
+        return True
 
 def buildMetadata(image_path):
     if Path(image_path).is_file() is False:
